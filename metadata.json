@@ -1,0 +1,8 @@
+{
+  "name": "AppShare",
+  "description": "Plataforma de compartilhamento de arquivos APK e mídias no estilo MediaFire, com páginas de download públicas e painel administrativo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

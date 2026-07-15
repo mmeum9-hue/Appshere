@@ -1,0 +1,176 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "User Account",
+      "description": "User profile with role and account status.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "User's email address"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User's display name"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "admin"],
+          "description": "User's authorization role"
+        },
+        "createdAt": {
+          "type": "integer",
+          "description": "Account creation timestamp"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "suspended"],
+          "description": "Account status"
+        }
+      },
+      "required": ["email", "displayName", "role", "createdAt", "status"]
+    },
+    "SharedFile": {
+      "title": "Shared File",
+      "description": "Metadata for a uploaded shared file.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Original file name"
+        },
+        "size": {
+          "type": "integer",
+          "description": "File size in bytes"
+        },
+        "type": {
+          "type": "string",
+          "description": "File type classification (apk, image, general, etc.)"
+        },
+        "uploadedAt": {
+          "type": "integer",
+          "description": "Upload timestamp"
+        },
+        "downloadUrl": {
+          "type": "string",
+          "description": "Direct download link"
+        },
+        "downloadsCount": {
+          "type": "integer",
+          "description": "Download counter"
+        },
+        "uploadedBy": {
+          "type": "string",
+          "description": "UID of the uploader"
+        },
+        "uploaderEmail": {
+          "type": "string",
+          "description": "Email of the uploader"
+        },
+        "isPublic": {
+          "type": "boolean",
+          "description": "Whether the file is accessible publicly"
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional notes or descriptions for the file"
+        },
+        "appIcon": {
+          "type": "string",
+          "description": "URL or preset key for the app icon"
+        },
+        "screenshots": {
+          "type": "array",
+          "description": "List of URLs for application screenshots"
+        },
+        "rating": {
+          "type": "number",
+          "description": "Average rating value"
+        },
+        "ratingsCount": {
+          "type": "integer",
+          "description": "Total count of rating submissions"
+        }
+      },
+      "required": ["name", "size", "type", "uploadedAt", "downloadUrl", "uploadedBy", "uploaderEmail"]
+    },
+    "FavoriteFile": {
+      "title": "Favorite File",
+      "description": "Connects a user to their favorited files.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique key formed by user.uid_fileId"
+        },
+        "userId": {
+          "type": "string",
+          "description": "The UID of the user"
+        },
+        "fileId": {
+          "type": "string",
+          "description": "The ID of the favorited file"
+        },
+        "createdAt": {
+          "type": "integer",
+          "description": "Timestamp when favorited"
+        }
+      },
+      "required": ["id", "userId", "fileId", "createdAt"]
+    },
+    "ReviewComment": {
+      "title": "Review Comment",
+      "description": "An interactive rating and review comment for a file.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique review ID"
+        },
+        "fileId": {
+          "type": "string",
+          "description": "The file being reviewed"
+        },
+        "rating": {
+          "type": "integer",
+          "description": "Star rating from 1 to 5"
+        },
+        "comment": {
+          "type": "string",
+          "description": "Text comment from the user"
+        },
+        "userName": {
+          "type": "string",
+          "description": "Name of the reviewer"
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of the reviewer or 'guest'"
+        },
+        "createdAt": {
+          "type": "integer",
+          "description": "Timestamp of creation"
+        }
+      },
+      "required": ["id", "fileId", "rating", "comment", "userName", "userId", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "UserAccount",
+      "description": "Profile info for each registered user."
+    },
+    "files/{fileId}": {
+      "schema": "SharedFile",
+      "description": "All files shared through the app."
+    },
+    "favorites/{favoriteId}": {
+      "schema": "FavoriteFile",
+      "description": "Collection mapping favorited files for each user."
+    },
+    "reviews/{reviewId}": {
+      "schema": "ReviewComment",
+      "description": "Ratings and user comments/reviews for the applications."
+    }
+  }
+}
