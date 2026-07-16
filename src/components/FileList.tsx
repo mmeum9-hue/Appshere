@@ -4,7 +4,7 @@ import { formatBytes, formatDate, getFileTypeColor, getPublicDownloadUrl, getApp
 import { 
   FileCode, Image, Video, FileText, FolderArchive, File, Star, 
   Trash2, Copy, Download, Share2, ClipboardCheck, ArrowUpRight,
-  Filter, Grid, List, SearchX, CheckCircle, ExternalLink, ShieldAlert
+  Filter, Grid, List, SearchX, CheckCircle, ExternalLink, ShieldAlert, Pencil
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -14,6 +14,7 @@ interface FileListProps {
   favorites: string[];
   onToggleFavorite: (fileId: string) => void;
   onDeleteFile: (fileId: string) => void;
+  onEditFile: (file: SharedFile) => void;
   onDownloadIncrement: (fileId: string) => void;
   selectedCategory: string;
   setSelectedCategory: (category: string) => void;
@@ -26,6 +27,7 @@ export default function FileList({
   favorites,
   onToggleFavorite,
   onDeleteFile,
+  onEditFile,
   onDownloadIncrement,
   selectedCategory,
   setSelectedCategory,
@@ -309,6 +311,18 @@ export default function FileList({
                         {copiedId === f.id ? <ClipboardCheck size={14} /> : <Copy size={14} />}
                       </button>
 
+                      {/* Edit/Update File (if owner) */}
+                      {isOwner && (
+                        <button
+                          onClick={() => onEditFile(f)}
+                          className="p-2 bg-blue-500/10 hover:bg-blue-500 text-blue-500 hover:text-white border border-blue-500/15 rounded-xl transition-all cursor-pointer"
+                          title="Atualizar Aplicativo"
+                          id={`edit-btn-${f.id}`}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      )}
+
                       {/* Delete File (if owner) */}
                       {isOwner && (
                         <button
@@ -414,6 +428,18 @@ export default function FileList({
                     >
                       {copiedId === f.id ? <ClipboardCheck size={13} /> : <Copy size={13} />}
                     </button>
+
+                    {/* Edit File */}
+                    {isOwner && (
+                      <button
+                        onClick={() => onEditFile(f)}
+                        className="p-1.5 bg-blue-500/10 hover:bg-blue-500 border border-blue-500/15 rounded-lg text-blue-500 hover:text-white transition-all cursor-pointer"
+                        id={`edit-row-btn-${f.id}`}
+                        title="Atualizar Aplicativo"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    )}
 
                     {/* Delete File */}
                     {isOwner && (

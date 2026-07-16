@@ -22,6 +22,7 @@ import UploadCard from './components/UploadCard';
 import FileList from './components/FileList';
 import DownloadPage from './components/DownloadPage';
 import AuthPage from './components/AuthPage';
+import EditAppModal from './components/EditAppModal';
 import { 
   FolderLock, Info, ArrowUpRight, HelpCircle, 
   Sparkles, CheckCircle, AlertCircle, X, FolderOpen, HardDrive, Star, UploadCloud
@@ -63,6 +64,7 @@ export default function App() {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [editingFile, setEditingFile] = useState<SharedFile | null>(null);
   const [loading, setLoading] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
@@ -442,8 +444,28 @@ export default function App() {
     return (
       <div className={theme}>
         <div className="bg-slate-50 dark:bg-slate-950 min-h-screen transition-colors duration-300">
-          <DownloadPage fileId={downloadFileId} onBackToApp={handleBackToApp} />
+          <DownloadPage 
+            fileId={downloadFileId} 
+            onBackToApp={handleBackToApp} 
+            onEditFile={(file) => setEditingFile(file)}
+          />
         </div>
+        {/* Edit App Modal overlay when on download page view */}
+        <AnimatePresence>
+          {editingFile && (
+            <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6">
+              <EditAppModal 
+                file={editingFile}
+                user={user}
+                onClose={() => setEditingFile(null)}
+                onSaveSuccess={(msg) => {
+                  setEditingFile(null);
+                  showToast(msg, 'success');
+                }}
+              />
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
@@ -520,6 +542,23 @@ export default function App() {
                   />
                 </div>
               </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Edit App Modal Overlay */}
+        <AnimatePresence>
+          {editingFile && (
+            <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6">
+              <EditAppModal 
+                file={editingFile}
+                user={user}
+                onClose={() => setEditingFile(null)}
+                onSaveSuccess={(msg) => {
+                  setEditingFile(null);
+                  showToast(msg, 'success');
+                }}
+              />
             </div>
           )}
         </AnimatePresence>
@@ -707,6 +746,7 @@ export default function App() {
                 favorites={favorites}
                 onToggleFavorite={handleToggleFavorite}
                 onDeleteFile={handleDeleteFile}
+                onEditFile={(file) => setEditingFile(file)}
                 onDownloadIncrement={handleDownloadIncrement}
                 selectedCategory={selectedCategory}
                 setSelectedCategory={setSelectedCategory}

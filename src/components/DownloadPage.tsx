@@ -6,13 +6,14 @@ import { formatBytes, formatDate, getFileTypeColor, getAppAestheticTheme } from 
 import { 
   FileCode, Image as ImageIcon, Video, FileText, FolderArchive, File, Download, 
   Copy, ArrowLeft, ShieldCheck, Heart, Share2, ClipboardCheck, ExternalLink, RefreshCw,
-  Star, User as UserIcon, MessageSquare, Smartphone, Calendar, Check, AlertCircle, Maximize2, ShieldAlert
+  Star, User as UserIcon, MessageSquare, Smartphone, Calendar, Check, AlertCircle, Maximize2, ShieldAlert, Pencil
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface DownloadPageProps {
   fileId: string;
   onBackToApp: () => void;
+  onEditFile?: (file: SharedFile) => void;
 }
 
 interface ReviewComment {
@@ -25,7 +26,7 @@ interface ReviewComment {
   createdAt: number;
 }
 
-export default function DownloadPage({ fileId, onBackToApp }: DownloadPageProps) {
+export default function DownloadPage({ fileId, onBackToApp, onEditFile }: DownloadPageProps) {
   const [file, setFile] = useState<SharedFile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -46,48 +47,45 @@ export default function DownloadPage({ fileId, onBackToApp }: DownloadPageProps)
   const [reviewSuccess, setReviewSuccess] = useState(false);
   const [reviewError, setReviewError] = useState('');
 
-  // 1. Fetch File Metadata
+  // 1. Sync File Metadata in Real-Time
   useEffect(() => {
-    const fetchFile = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        const docRef = doc(db, 'files', fileId);
-        const docSnap = await getDoc(docRef);
-        
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setFile({
-            id: docSnap.id,
-            name: data.name,
-            size: data.size,
-            type: data.type,
-            uploadedAt: data.uploadedAt,
-            downloadUrl: data.downloadUrl,
-            downloadsCount: data.downloadsCount || 0,
-            uploadedBy: data.uploadedBy,
-            uploaderEmail: data.uploaderEmail,
-            isPublic: data.isPublic,
-            description: data.description,
-            appIcon: data.appIcon || '',
-            screenshots: data.screenshots || [],
-            rating: data.rating || 4.8,
-            ratingsCount: data.ratingsCount || 0
-          });
-        } else {
-          setError('O aplicativo solicitado não foi encontrado ou foi removido pelo desenvolvedor.');
-        }
-      } catch (err) {
-        console.error('Error fetching download file:', err);
-        setError('Não foi possível carregar os detalhes do aplicativo. Verifique sua conexão.');
-      } finally {
-        setLoading(false);
-      }
-    };
+    if (!fileId) return;
 
-    if (fileId) {
-      fetchFile();
-    }
+    setLoading(true);
+    setError('');
+
+    const docRef = doc(db, 'files', fileId);
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setFile({
+          id: docSnap.id,
+          name: data.name,
+          size: data.size,
+          type: data.type,
+          uploadedAt: data.uploadedAt,
+          downloadUrl: data.downloadUrl,
+          downloadsCount: data.downloadsCount || 0,
+          uploadedBy: data.uploadedBy,
+          uploaderEmail: data.uploaderEmail,
+          isPublic: data.isPublic,
+          description: data.description,
+          appIcon: data.appIcon || '',
+          screenshots: data.screenshots || [],
+          rating: data.rating || 4.8,
+          ratingsCount: data.ratingsCount || 0
+        });
+      } else {
+        setError('O aplicativo solicitado não foi encontrado ou foi removido pelo desenvolvedor.');
+      }
+      setLoading(false);
+    }, (err) => {
+      console.error('Error listening to download file:', err);
+      setError('Não foi possível carregar os detalhes do aplicativo. Verifique sua conexão.');
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, [fileId]);
 
   // 2. Fetch/Sync Reviews in Real-Time
@@ -443,6 +441,17 @@ export default function DownloadPage({ fileId, onBackToApp }: DownloadPageProps)
               <Download size={18} strokeWidth={2.5} />
               <span>{downloading ? 'Iniciando Download...' : 'BAIXAR APK'}</span>
             </button>
+
+            {auth.currentUser && file.uploadedBy === auth.currentUser.uid && onEditFile && (
+              <button
+                onClick={() => onEditFile(file)}
+                className="w-full sm:w-64 py-2.5 bg-blue-600/10 hover:bg-blue-600 hover:text-white text-blue-600 dark:text-blue-400 font-bold text-xs rounded-2xl border border-blue-600/20 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                id="edit-apk-btn-store"
+              >
+                <Pencil size={12} />
+                <span>ATUALIZAR DADOS / NOVA VERSÃO</span>
+              </button>
+            )}
 
             {downloadStarted && (
               <p className="text-[10px] text-center font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 py-1.5 px-3 rounded-lg border border-blue-100 dark:border-blue-900/10">
