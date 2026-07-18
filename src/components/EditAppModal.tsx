@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { db } from '../firebase';
+import { db, storage, ref as storageRef, uploadBytesResumable, getDownloadURL } from '../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getFileType, formatBytes } from '../utils';
 import { 
@@ -52,6 +52,16 @@ export default function EditAppModal({ file, user, onClose, onSaveSuccess }: Edi
   const uploadHelperFile = async (selectedFile: File): Promise<string> => {
     const helperId = 'img_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
     
+    // First try direct Firebase Storage upload for helper files (icons, screenshots)
+    try {
+      const storageRefInstance = storageRef(storage, `assets/${helperId}/${selectedFile.name}`);
+      const uploadTask = await uploadBytesResumable(storageRefInstance, selectedFile);
+      const firebaseUrl = await getDownloadURL(uploadTask.ref);
+      return firebaseUrl;
+    } catch (storageErr) {
+      console.warn('Firebase Storage asset upload failed, falling back to server filesystem:', storageErr);
+    }
+    
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/upload');
@@ -63,7 +73,7 @@ export default function EditAppModal({ file, user, onClose, onSaveSuccess }: Edi
           try {
             const response = JSON.parse(xhr.responseText);
             if (response.success && response.downloadUrl) {
-              resolve(response.downloadUrl);
+              resolve(window.location.origin + response.downloadUrl);
             } else {
               reject(new Error('Upload response failed'));
             }
@@ -169,52 +179,91 @@ export default function EditAppModal({ file, user, onClose, onSaveSuccess }: Edi
         console.warn('Could not save file copy to local IndexedDB store:', dbErr);
       }
 
-      try {
-        const xhr = new XMLHttpRequest();
-        xhr.upload.addEventListener('progress', (e) => {
-          if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 100);
-            setProgress(pct);
-          }
-        });
+      const uploadToServer = async () => {
+        try {
+          const xhr = new XMLHttpRequest();
+          xhr.upload.addEventListener('progress', (ev) => {
+            if (ev.lengthComputable) {
+              const pct = Math.round((ev.loaded / ev.total) * 100);
+              setProgress(pct);
+            }
+          });
 
-        xhr.addEventListener('load', async () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const response = JSON.parse(xhr.responseText);
-              if (response.success && response.downloadUrl) {
-                await updateMetadataInFirestore(
-                  name, 
-                  newFile.size, 
-                  newFileCategory as any, 
-                  response.downloadUrl, 
-                  screenshots
-                );
-              } else {
-                throw new Error('Upload server error');
+          xhr.addEventListener('load', async () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                const response = JSON.parse(xhr.responseText);
+                if (response.success && response.downloadUrl) {
+                  // IMPORTANT: Generate an absolute URL so other users can download directly from this active container
+                  const absoluteUrl = window.location.origin + response.downloadUrl;
+                  await updateMetadataInFirestore(
+                    name, 
+                    newFile.size, 
+                    newFileCategory as any, 
+                    absoluteUrl, 
+                    screenshots
+                  );
+                } else {
+                  throw new Error('Upload server error');
+                }
+              } catch (err) {
+                console.warn('Failed parsing server response, simulating update upload:', err);
+                simulateUpdateUpload(screenshots);
               }
-            } catch (err) {
-              console.warn('Failed parsing server response, simulating update upload:', err);
+            } else {
+              console.warn('Server upload update failed, using simulation:', xhr.status);
               simulateUpdateUpload(screenshots);
             }
-          } else {
-            console.warn('Server upload update failed, using simulation:', xhr.status);
+          });
+
+          xhr.addEventListener('error', () => {
+            console.warn('Network error, using simulation:');
             simulateUpdateUpload(screenshots);
-          }
-        });
+          });
 
-        xhr.addEventListener('error', () => {
-          console.warn('Network error, using simulation:');
+          xhr.open('POST', '/api/upload');
+          xhr.setRequestHeader('x-file-id', file.id);
+          xhr.setRequestHeader('x-file-name', encodeURIComponent(newFile.name));
+          xhr.send(newFile);
+        } catch (err) {
+          console.warn('Error uploading updated file, using simulation:', err);
           simulateUpdateUpload(screenshots);
-        });
+        }
+      };
 
-        xhr.open('POST', '/api/upload');
-        xhr.setRequestHeader('x-file-id', file.id);
-        xhr.setRequestHeader('x-file-name', encodeURIComponent(newFile.name));
-        xhr.send(newFile);
+      // Try direct Firebase Storage first for optimal multi-user accessibility and persistence
+      try {
+        const storageRefInstance = storageRef(storage, `uploads/${file.id}/${newFile.name}`);
+        const uploadTask = uploadBytesResumable(storageRefInstance, newFile);
+
+        uploadTask.on('state_changed', 
+          (snapshot) => {
+            const pct = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+            setProgress(pct);
+          }, 
+          async (storageErr) => {
+            console.warn('Firebase Storage direct update upload unauthorized or failed, falling back to server upload:', storageErr);
+            await uploadToServer();
+          }, 
+          async () => {
+            try {
+              const firebaseUrl = await getDownloadURL(uploadTask.snapshot.ref);
+              await updateMetadataInFirestore(
+                name, 
+                newFile.size, 
+                newFileCategory as any, 
+                firebaseUrl, 
+                screenshots
+              );
+            } catch (urlErr) {
+              console.warn('Failed to get download URL from Storage, falling back to server upload:', urlErr);
+              await uploadToServer();
+            }
+          }
+        );
       } catch (err) {
-        console.warn('Error uploading updated file, using simulation:', err);
-        simulateUpdateUpload(screenshots);
+        console.warn('Direct Firebase Storage upload initiation failed, falling back to server:', err);
+        await uploadToServer();
       }
     } else {
       // Se não enviou novo arquivo, apenas atualiza os metadados
