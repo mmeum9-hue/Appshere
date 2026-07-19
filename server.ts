@@ -7,16 +7,7 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Configure body limit to handle large uploads (e.g., APKs, videos, up to 100MB)
-  app.use(express.json({ limit: "100mb" }));
-  app.use(express.urlencoded({ limit: "100mb", extended: true }));
-
-  // API Route for health check
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
-  });
-
-  // API Route for upload (raw binary stream)
+  // API Route for upload (raw binary stream) - MUST be defined BEFORE body-parsers to avoid stream consumption issues
   app.post("/api/upload", (req, res) => {
     const fileId = req.headers["x-file-id"] as string;
     const fileName = decodeURIComponent(req.headers["x-file-name"] as string || "file");
@@ -45,6 +36,15 @@ async function startServer() {
       console.error("Server upload stream write error:", err);
       res.status(500).json({ error: "Failed to save file on server" });
     });
+  });
+
+  // Configure body limit to handle large uploads (e.g., APKs, videos, up to 100MB)
+  app.use(express.json({ limit: "100mb" }));
+  app.use(express.urlencoded({ limit: "100mb", extended: true }));
+
+  // API Route for health check
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok" });
   });
 
   // API Route for download

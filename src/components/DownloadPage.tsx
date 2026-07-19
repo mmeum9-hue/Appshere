@@ -34,6 +34,7 @@ export default function DownloadPage({ fileId, onBackToApp, onEditFile }: Downlo
   const [copied, setCopied] = useState(false);
   const [downloadStarted, setDownloadStarted] = useState(false);
   const [downloadHref, setDownloadHref] = useState('');
+  const [isMockFile, setIsMockFile] = useState(false);
   
   // Real-time Reviews State
   const [reviews, setReviews] = useState<ReviewComment[]>([]);
@@ -141,6 +142,7 @@ export default function DownloadPage({ fileId, onBackToApp, onEditFile }: Downlo
         if (localFile && !isCancelled) {
           activeUrl = URL.createObjectURL(localFile);
           setDownloadHref(activeUrl);
+          setIsMockFile(false);
           console.log('Using authentic local file from IndexedDB for download:', file.name);
           return;
         }
@@ -151,6 +153,10 @@ export default function DownloadPage({ fileId, onBackToApp, onEditFile }: Downlo
       if (isCancelled) return;
 
       const isMock = (file.downloadUrl.includes('appshare-simulator') || file.downloadUrl.includes('mock_') || !file.downloadUrl.startsWith('http')) && !file.downloadUrl.startsWith('/api/');
+      if (!isCancelled) {
+        setIsMockFile(isMock);
+      }
+
       if (isMock) {
         let blob: Blob;
         if (file.type === 'image') {
@@ -187,35 +193,53 @@ export default function DownloadPage({ fileId, onBackToApp, onEditFile }: Downlo
   }, [file]);
 
   // Handle Download trigger
-  const handleDownload = async () => {
+  const handleDownload = () => {
     if (!file) return;
     setDownloading(true);
 
+    const targetUrl = downloadHref || file.downloadUrl;
+
     try {
-      const docRef = doc(db, 'files', file.id);
-      await updateDoc(docRef, {
-        downloadsCount: increment(1)
-      });
-
-      setFile(prev => prev ? { ...prev, downloadsCount: prev.downloadsCount + 1 } : null);
+      // 1. Trigger the download immediately in the same call stack / synchronous user gesture.
+      // This is crucial for mobile devices (iOS Safari, Android Chrome) and in-app browsers (WhatsApp/Instagram) 
+      // which block programmatic downloads or window.open calls if they happen after an async 'await' database call.
+      const isMobile = /iPad|iPhone|iPod|Android/i.test(navigator.userAgent);
+      
+      if (isMobile) {
+        // Direct assignment is the absolute most reliable method for triggering file download/navigation in mobile webviews
+        window.location.href = targetUrl;
+      } else {
+        const link = document.createElement('a');
+        link.href = targetUrl;
+        link.target = '_blank';
+        link.setAttribute('download', file.name);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
       setDownloadStarted(true);
-
-      const link = document.createElement('a');
-      link.href = downloadHref || file.downloadUrl;
-      link.target = '_blank';
-      link.setAttribute('download', file.name);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
     } catch (err) {
-      console.error('Error recording download:', err);
-      window.open(downloadHref || file.downloadUrl, '_blank');
-    } finally {
+      console.error('Error triggering download synchronously:', err);
+      try {
+        window.location.href = targetUrl;
+      } catch (hrefErr) {
+        window.open(targetUrl, '_blank');
+      }
+    }
+
+    // 2. Perform the database update asynchronously in the background so it doesn't block the download gesture
+    const docRef = doc(db, 'files', file.id);
+    updateDoc(docRef, {
+      downloadsCount: increment(1)
+    }).then(() => {
+      setFile(prev => prev ? { ...prev, downloadsCount: prev.downloadsCount + 1 } : null);
+    }).catch((err) => {
+      console.warn('Error recording download count in database (best effort):', err);
+    }).finally(() => {
       setTimeout(() => {
         setDownloading(false);
       }, 1500);
-    }
+    });
   };
 
   const handleCopyLink = () => {
@@ -441,6 +465,22 @@ export default function DownloadPage({ fileId, onBackToApp, onEditFile }: Downlo
               <Download size={18} strokeWidth={2.5} />
               <span>{downloading ? 'Iniciando Download...' : 'BAIXAR APK'}</span>
             </button>
+
+            {isMockFile && (
+              <div className="w-full sm:w-64 p-3.5 bg-amber-500/10 dark:bg-amber-500/5 border border-amber-500/20 rounded-2xl space-y-2 text-left">
+                <div className="flex gap-1.5 items-center text-amber-600 dark:text-amber-400 font-bold text-[11px] uppercase tracking-wider">
+                  <AlertCircle size={14} className="shrink-0" />
+                  <span>Arquivo Simulado</span>
+                </div>
+                <p className="text-[10px] text-slate-600 dark:text-slate-400 leading-normal">
+                  Este registro foi feito quando os uploads de arquivos reais estavam indisponíveis. 
+                  <span className="block mt-1 font-bold text-slate-800 dark:text-slate-200">
+                    O servidor de uploads reais já está corrigido e funcionando perfeitamente!
+                  </span>
+                  Para obter o download real, envie um novo arquivo ou clique abaixo para atualizar este registro com o arquivo APK verdadeiro.
+                </p>
+              </div>
+            )}
 
             {auth.currentUser && file.uploadedBy === auth.currentUser.uid && onEditFile && (
               <button
