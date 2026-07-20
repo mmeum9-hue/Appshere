@@ -35,6 +35,7 @@ export default function DownloadPage({ fileId, onBackToApp, onEditFile }: Downlo
   const [downloadStarted, setDownloadStarted] = useState(false);
   const [downloadHref, setDownloadHref] = useState('');
   const [isMockFile, setIsMockFile] = useState(false);
+  const [chunkProgress, setChunkProgress] = useState<number | null>(null);
   
   // Real-time Reviews State
   const [reviews, setReviews] = useState<ReviewComment[]>([]);
@@ -152,7 +153,8 @@ export default function DownloadPage({ fileId, onBackToApp, onEditFile }: Downlo
 
       if (isCancelled) return;
 
-      const isMock = (file.downloadUrl.includes('appshare-simulator') || file.downloadUrl.includes('mock_') || !file.downloadUrl.startsWith('http')) && !file.downloadUrl.startsWith('/api/');
+      const isChunkUrl = file.downloadUrl.startsWith('firestore-chunks://');
+      const isMock = !isChunkUrl && (file.downloadUrl.includes('appshare-simulator') || file.downloadUrl.includes('mock_') || !file.downloadUrl.startsWith('http')) && !file.downloadUrl.startsWith('/api/');
       if (!isCancelled) {
         setIsMockFile(isMock);
       }
@@ -205,9 +207,66 @@ export default function DownloadPage({ fileId, onBackToApp, onEditFile }: Downlo
   }, [file]);
 
   // Handle Download trigger
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!file) return;
     setDownloading(true);
+    setChunkProgress(0);
+
+    const isChunkUrl = file.downloadUrl.startsWith('firestore-chunks://');
+
+    // If it's stored as chunks in Firestore and NOT already resolved to local blob in downloadHref
+    if (isChunkUrl && (!downloadHref || !downloadHref.startsWith('blob:'))) {
+      try {
+        const { downloadFileFromFirestore } = await import('../lib/firestoreStorage');
+        
+        let mimeType = 'application/octet-stream';
+        const ext = file.name.split('.').pop()?.toLowerCase();
+        if (ext === 'apk' || file.type === 'apk') {
+          mimeType = 'application/vnd.android.package-archive';
+        } else if (ext === 'zip' || file.type === 'zip') {
+          mimeType = 'application/zip';
+        } else if (ext === 'pdf' || file.type === 'pdf') {
+          mimeType = 'application/pdf';
+        } else if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext || '')) {
+          mimeType = `image/${ext}`;
+        }
+
+        const blob = await downloadFileFromFirestore(file.id, file.name, mimeType, (pct) => {
+          setChunkProgress(pct);
+        });
+
+        const activeUrl = URL.createObjectURL(blob);
+        setDownloadHref(activeUrl);
+
+        // Trigger native download
+        const link = document.createElement('a');
+        link.href = activeUrl;
+        link.setAttribute('download', file.name);
+        link.target = '_self';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        setDownloadStarted(true);
+      } catch (err: any) {
+        console.error('Failed to download Firestore chunks:', err);
+        setReviewError('Erro ao baixar partes do arquivo do banco de dados: ' + err.message);
+      } finally {
+        setChunkProgress(null);
+        // Increment download count
+        const docRef = doc(db, 'files', file.id);
+        updateDoc(docRef, {
+          downloadsCount: increment(1)
+        }).then(() => {
+          setFile(prev => prev ? { ...prev, downloadsCount: prev.downloadsCount + 1 } : null);
+        }).catch((err) => {
+          console.warn('Error recording download count in database (best effort):', err);
+        }).finally(() => {
+          setDownloading(false);
+        });
+      }
+      return;
+    }
 
     const targetUrl = downloadHref || file.downloadUrl;
 
@@ -249,6 +308,7 @@ export default function DownloadPage({ fileId, onBackToApp, onEditFile }: Downlo
     }).finally(() => {
       setTimeout(() => {
         setDownloading(false);
+        setChunkProgress(null);
       }, 1500);
     });
   };
@@ -470,11 +530,25 @@ export default function DownloadPage({ fileId, onBackToApp, onEditFile }: Downlo
             <button
               onClick={handleDownload}
               disabled={downloading}
-              className={`w-full sm:w-64 py-3.5 ${theme.button} disabled:opacity-80 active:scale-[0.98] text-white font-bold text-sm rounded-2xl shadow-xl transition-all cursor-pointer flex items-center justify-center gap-2.5`}
+              className={`w-full sm:w-64 py-3.5 ${theme.button} disabled:opacity-80 active:scale-[0.98] text-white font-bold text-sm rounded-2xl shadow-xl transition-all cursor-pointer flex flex-col items-center justify-center relative overflow-hidden`}
               id="install-apk-btn"
             >
-              <Download size={18} strokeWidth={2.5} />
-              <span>{downloading ? 'Iniciando Download...' : 'BAIXAR APK'}</span>
+              {chunkProgress !== null && chunkProgress > 0 && chunkProgress < 100 && (
+                <div 
+                  className="absolute top-0 left-0 bottom-0 bg-white/25 transition-all duration-300"
+                  style={{ width: `${chunkProgress}%` }}
+                />
+              )}
+              <div className="flex items-center justify-center gap-2.5 z-10">
+                {downloading ? <RefreshCw className="animate-spin" size={18} /> : <Download size={18} strokeWidth={2.5} />}
+                <span>
+                  {chunkProgress !== null && chunkProgress > 0 && chunkProgress < 100
+                    ? `Baixando (${chunkProgress}%)`
+                    : downloading 
+                      ? 'Preparando...' 
+                      : 'BAIXAR APK'}
+                </span>
+              </div>
             </button>
 
             {isMockFile && (

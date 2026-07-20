@@ -3,6 +3,7 @@ import { auth, db, storage } from '../firebase';
 import { collection, doc, setDoc } from 'firebase/firestore';
 import { ref as storageRef, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { getFileType, getPublicDownloadUrl, formatBytes } from '../utils';
+import { MAX_CHUNKS_FILE_SIZE } from '../lib/firestoreStorage';
 import { 
   Upload, FileCode, CheckCircle, Copy, AlertCircle, Eye, EyeOff, ClipboardCheck, 
   FileText, Smartphone, Plus, Trash2, Image as ImageIcon, Loader2 
@@ -246,6 +247,22 @@ export default function UploadCard({ onUploadSuccess, user }: UploadCardProps) {
       }
     };
 
+    const executeFinalUpload = async () => {
+      if (file.size <= MAX_CHUNKS_FILE_SIZE) {
+        try {
+          const { uploadFileToFirestore } = await import('../lib/firestoreStorage');
+          const chunkUrl = await uploadFileToFirestore(fileId, file, (pct) => {
+            setProgress(pct);
+          });
+          await saveFileMetadata(fileId, file.name, file.size, fileCategory, chunkUrl);
+          return;
+        } catch (chunkErr) {
+          console.warn('Firestore chunked upload failed, falling back to server upload:', chunkErr);
+        }
+      }
+      await uploadToServer();
+    };
+
     // Try direct Firebase Storage first for optimal multi-user accessibility and persistence
     try {
       const storageRefInstance = storageRef(storage, `uploads/${fileId}/${file.name}`);
@@ -257,22 +274,22 @@ export default function UploadCard({ onUploadSuccess, user }: UploadCardProps) {
           setProgress(pct);
         }, 
         async (storageErr) => {
-          console.warn('Firebase Storage direct upload unauthorized or failed, falling back to server upload:', storageErr);
-          await uploadToServer();
+          console.warn('Firebase Storage direct upload unauthorized or failed, falling back to chunked/server upload:', storageErr);
+          await executeFinalUpload();
         }, 
         async () => {
           try {
             const firebaseUrl = await getDownloadURL(uploadTask.snapshot.ref);
             await saveFileMetadata(fileId, file.name, file.size, fileCategory, firebaseUrl);
           } catch (urlErr) {
-            console.warn('Failed to get download URL from Storage, falling back to server upload:', urlErr);
-            await uploadToServer();
+            console.warn('Failed to get download URL from Storage, falling back to chunked/server upload:', urlErr);
+            await executeFinalUpload();
           }
         }
       );
     } catch (err) {
-      console.warn('Direct Firebase Storage upload initiation failed, falling back to server:', err);
-      await uploadToServer();
+      console.warn('Direct Firebase Storage upload initiation failed, falling back to chunked/server:', err);
+      await executeFinalUpload();
     }
   };
 

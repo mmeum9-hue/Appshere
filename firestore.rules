@@ -146,6 +146,28 @@ service cloud.firestore {
                     && (resource.data.uploadedBy == request.auth.uid || isAdmin());
     }
 
+    // --- File Chunks Collection ---
+    match /file_chunks/{chunkId} {
+      allow get: if true;
+      allow list: if false;
+
+      allow create: if isValidId(chunkId)
+                    && incoming().fileId is string
+                    && incoming().chunkIndex is number
+                    && incoming().totalChunks is number
+                    && incoming().data is string;
+
+      allow delete: if isSignedIn()
+                    && (
+                      isAdmin()
+                      ||
+                      (
+                        exists(/databases/$(database)/documents/files/$(resource.data.fileId))
+                        && get(/databases/$(database)/documents/files/$(resource.data.fileId)).data.uploadedBy == request.auth.uid
+                      )
+                    );
+    }
+
     // --- Favorites Collection ---
     match /favorites/{favoriteId} {
       allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());

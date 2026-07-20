@@ -153,6 +153,34 @@
         }
       },
       "required": ["id", "fileId", "rating", "comment", "userName", "userId", "createdAt"]
+    },
+    "FileChunk": {
+      "title": "File Chunk",
+      "description": "Segment of a shared file for persistent segmented downloads.",
+      "type": "object",
+      "properties": {
+        "fileId": {
+          "type": "string",
+          "description": "The ID of the corresponding file"
+        },
+        "chunkIndex": {
+          "type": "integer",
+          "description": "Index of this chunk"
+        },
+        "totalChunks": {
+          "type": "integer",
+          "description": "Total chunks count"
+        },
+        "data": {
+          "type": "string",
+          "description": "Base64 string data segment"
+        },
+        "uploadedAt": {
+          "type": "integer",
+          "description": "Timestamp of chunk upload"
+        }
+      },
+      "required": ["fileId", "chunkIndex", "totalChunks", "data", "uploadedAt"]
     }
   },
   "firestore": {
@@ -171,6 +199,10 @@
     "reviews/{reviewId}": {
       "schema": "ReviewComment",
       "description": "Ratings and user comments/reviews for the applications."
+    },
+    "file_chunks/{chunkId}": {
+      "schema": "FileChunk",
+      "description": "Segments of files stored for robust persistent downloads."
     }
   }
 }
