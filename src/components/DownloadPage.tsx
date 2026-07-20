@@ -173,7 +173,19 @@ export default function DownloadPage({ fileId, onBackToApp, onEditFile }: Downlo
             `Tipo: ${file.type}\n` +
             `Tamanho original: ${file.size} bytes\n\n` +
             `Obrigado por testar o AppShare!`;
-          blob = new Blob([dummyContent], { type: 'text/plain' });
+          
+          let mimeType = 'text/plain';
+          const ext = file.name.split('.').pop()?.toLowerCase();
+          if (ext === 'apk' || file.type === 'apk') {
+            mimeType = 'application/vnd.android.package-archive';
+          } else if (ext === 'zip' || file.type === 'zip') {
+            mimeType = 'application/zip';
+          } else if (ext === 'pdf' || file.type === 'pdf') {
+            mimeType = 'application/pdf';
+          } else {
+            mimeType = 'application/octet-stream';
+          }
+          blob = new Blob([dummyContent], { type: mimeType });
         }
         activeUrl = URL.createObjectURL(blob);
         setDownloadHref(activeUrl);
@@ -200,23 +212,22 @@ export default function DownloadPage({ fileId, onBackToApp, onEditFile }: Downlo
     const targetUrl = downloadHref || file.downloadUrl;
 
     try {
-      // 1. Trigger the download immediately in the same call stack / synchronous user gesture.
-      // This is crucial for mobile devices (iOS Safari, Android Chrome) and in-app browsers (WhatsApp/Instagram) 
-      // which block programmatic downloads or window.open calls if they happen after an async 'await' database call.
-      const isMobile = /iPad|iPhone|iPod|Android/i.test(navigator.userAgent);
+      // Create a temporary anchor element to trigger file download with the correct filename
+      const link = document.createElement('a');
+      link.href = targetUrl;
+      link.setAttribute('download', file.name);
       
-      if (isMobile) {
-        // Direct assignment is the absolute most reliable method for triggering file download/navigation in mobile webviews
-        window.location.href = targetUrl;
+      // Blob/Data URLs belong to the same page session; do not open in a new tab to avoid webview blocks
+      if (targetUrl.startsWith('blob:') || targetUrl.startsWith('data:')) {
+        link.target = '_self';
       } else {
-        const link = document.createElement('a');
-        link.href = targetUrl;
         link.target = '_blank';
-        link.setAttribute('download', file.name);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
       }
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
       setDownloadStarted(true);
     } catch (err) {
       console.error('Error triggering download synchronously:', err);

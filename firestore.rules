@@ -119,23 +119,26 @@ service cloud.firestore {
       allow get: if resource == null || resource.data.isPublic == true || (isSignedIn() && (resource.data.uploadedBy == request.auth.uid || isAdmin()));
       allow list: if resource.data.isPublic == true || (isSignedIn() && (resource.data.uploadedBy == request.auth.uid || isAdmin()));
 
-      allow create: if isSignedIn()
+      allow create: if (
+                      (isSignedIn() && incoming().uploadedBy == request.auth.uid && incoming().uploaderEmail == request.auth.token.email)
+                      ||
+                      (!isSignedIn() && incoming().uploadedBy == 'guest' && incoming().uploaderEmail == 'Visitante')
+                    )
                     && isValidId(fileId)
                     && isValidFile(incoming())
-                    && incoming().uploadedBy == request.auth.uid
-                    && incoming().uploaderEmail == request.auth.token.email
                     && incoming().downloadsCount == 0;
 
-      allow update: if isSignedIn()
-                    && isValidId(fileId)
+      allow update: if isValidId(fileId)
                     && isValidFile(incoming())
-                    // Allow normal user to update their own files, or anyone to increment downloadsCount, or admins
                     && (
-                      isAdmin() ||
-                      // Action: owner update metadata
-                      (resource.data.uploadedBy == request.auth.uid && incoming().uploadedBy == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'isPublic', 'appIcon', 'screenshots', 'rating', 'ratingsCount'])) ||
-                      // Action: increment downloadsCount (from download action)
+                      // Anyone (even guest) can increment downloadsCount
                       (incoming().diff(existing()).affectedKeys().hasOnly(['downloadsCount']) && incoming().downloadsCount == existing().downloadsCount + 1)
+                      ||
+                      // Signed in owners or admins can do other updates
+                      (isSignedIn() && (
+                        isAdmin() ||
+                        (resource.data.uploadedBy == request.auth.uid && incoming().uploadedBy == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'isPublic', 'appIcon', 'screenshots', 'rating', 'ratingsCount']))
+                      ))
                     );
 
       allow delete: if isSignedIn()
