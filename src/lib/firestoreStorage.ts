@@ -4,8 +4,8 @@ import { db } from '../firebase';
 // 600KB chunk size of binary data (turns into ~800KB base64 string, safe for 1MB Firestore document limit)
 const CHUNK_SIZE = 600000;
 
-// Maximum size allowed for Firestore chunked storage (15MB) to preserve quota
-export const MAX_CHUNKS_FILE_SIZE = 15728640; 
+// Maximum size allowed for Firestore chunked storage (100MB) for robust storage fallback
+export const MAX_CHUNKS_FILE_SIZE = 104857600; 
 
 /**
  * Converts a Blob/File slice to a base64 string natively and efficiently
@@ -38,7 +38,7 @@ export async function base64ToBlob(base64: string, mimeType: string): Promise<Bl
 }
 
 /**
- * Uploads a file in chunks to Firestore.
+ * Uploads a file in chunks to Firestore in parallel for maximum speed.
  * Naming scheme of chunk documents is `${fileId}_chunk_${index}` for index-free fast sequential retrieval.
  */
 export async function uploadFileToFirestore(
@@ -51,7 +51,11 @@ export async function uploadFileToFirestore(
 
   console.log(`Starting Firestore chunked upload for ${file.name} (${totalSize} bytes, ${totalChunks} chunks)`);
 
-  for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+  let completedChunks = 0;
+  const CONCURRENCY = 5; // Upload up to 5 chunks in parallel for high speed
+
+  // Function to upload a specific chunk
+  const uploadChunk = async (chunkIndex: number) => {
     const start = chunkIndex * CHUNK_SIZE;
     const end = Math.min(start + CHUNK_SIZE, totalSize);
     const slice = file.slice(start, end);
@@ -68,16 +72,32 @@ export async function uploadFileToFirestore(
       uploadedAt: Date.now()
     });
 
-    const progress = Math.round(((chunkIndex + 1) / totalChunks) * 100);
+    completedChunks++;
+    const progress = Math.round((completedChunks / totalChunks) * 100);
     onProgress(progress);
-  }
+  };
+
+  // Run with parallel execution using a sliding concurrency pool
+  const chunkIndexes = Array.from({ length: totalChunks }, (_, i) => i);
+  const queue = [...chunkIndexes];
+  
+  const workers = Array(Math.min(CONCURRENCY, totalChunks)).fill(null).map(async () => {
+    while (queue.length > 0) {
+      const index = queue.shift();
+      if (index !== undefined) {
+        await uploadChunk(index);
+      }
+    }
+  });
+
+  await Promise.all(workers);
 
   console.log(`Firestore chunked upload completed for fileId: ${fileId}`);
   return `firestore-chunks://${fileId}`;
 }
 
 /**
- * Downloads and re-assembles file chunks from Firestore.
+ * Downloads and re-assembles file chunks from Firestore using parallel workers.
  */
 export async function downloadFileFromFirestore(
   fileId: string,
@@ -87,27 +107,46 @@ export async function downloadFileFromFirestore(
 ): Promise<Blob> {
   console.log(`Starting Firestore chunked download for fileId: ${fileId}`);
 
-  const base64Chunks: string[] = [];
-  let chunkIndex = 0;
-  let totalChunks = 1; // Updated dynamically from the first chunk
+  // 1. Fetch chunk 0 first to determine the total count of chunks
+  const chunk0DocId = `${fileId}_chunk_0`;
+  const chunk0Snap = await getDoc(doc(db, 'file_chunks', chunk0DocId));
 
-  while (chunkIndex < totalChunks) {
-    const chunkDocId = `${fileId}_chunk_${chunkIndex}`;
-    const chunkDocRef = doc(db, 'file_chunks', chunkDocId);
-    const chunkDocSnap = await getDoc(chunkDocRef);
+  if (!chunk0Snap.exists()) {
+    throw new Error(`Arquivo não encontrado ou corrompido: chunk inicial não encontrado.`);
+  }
 
-    if (!chunkDocSnap.exists()) {
-      throw new Error(`Arquivo corrompido ou incompleto: chunk ${chunkIndex} não encontrado.`);
-    }
+  const chunk0Data = chunk0Snap.data();
+  const totalChunks = chunk0Data.totalChunks || 1;
 
-    const chunkData = chunkDocSnap.data();
-    base64Chunks.push(chunkData.data);
-    totalChunks = chunkData.totalChunks || 1;
+  const base64Chunks: string[] = new Array(totalChunks);
+  base64Chunks[0] = chunk0Data.data;
 
-    const progress = Math.round(((chunkIndex + 1) / totalChunks) * 100);
-    onProgress(progress);
+  let completedCount = 1;
+  onProgress(Math.round((completedCount / totalChunks) * 100));
 
-    chunkIndex++;
+  if (totalChunks > 1) {
+    // Fetch remaining chunks in parallel
+    const CONCURRENCY = 6;
+    const remainingIndexes = Array.from({ length: totalChunks - 1 }, (_, i) => i + 1);
+    const queue = [...remainingIndexes];
+
+    const workers = Array(Math.min(CONCURRENCY, queue.length)).fill(null).map(async () => {
+      while (queue.length > 0) {
+        const index = queue.shift();
+        if (index !== undefined) {
+          const chunkDocId = `${fileId}_chunk_${index}`;
+          const snap = await getDoc(doc(db, 'file_chunks', chunkDocId));
+          if (!snap.exists()) {
+            throw new Error(`Arquivo corrompido ou incompleto: chunk ${index} não encontrado.`);
+          }
+          base64Chunks[index] = snap.data().data;
+          completedCount++;
+          onProgress(Math.round((completedCount / totalChunks) * 100));
+        }
+      }
+    });
+
+    await Promise.all(workers);
   }
 
   console.log(`All ${totalChunks} chunks retrieved, reassembling binary data...`);

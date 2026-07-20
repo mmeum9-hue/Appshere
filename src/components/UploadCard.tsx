@@ -200,6 +200,13 @@ export default function UploadCard({ onUploadSuccess, user }: UploadCardProps) {
       console.warn('Could not save file copy to local IndexedDB store:', dbErr);
     }
 
+    const handleUploadFailure = (reason: string) => {
+      console.error('Upload failed completely:', reason);
+      setError(`Erro no envio: Não foi possível realizar o upload do arquivo real para o Firebase Storage, Firestore Chunks ou para o servidor do AppShare. Detalhes: ${reason}`);
+      setUploading(false);
+      setProgress(0);
+    };
+
     const uploadToServer = async () => {
       try {
         const xhr = new XMLHttpRequest();
@@ -222,28 +229,28 @@ export default function UploadCard({ onUploadSuccess, user }: UploadCardProps) {
               } else {
                 throw new Error('Server upload response did not indicate success');
               }
-            } catch (parseErr) {
-              console.warn('Failed to parse server upload response, using local fallback:', parseErr);
-              simulateUpload(fileId, fileCategory);
+            } catch (parseErr: any) {
+              console.warn('Failed to parse server upload response:', parseErr);
+              handleUploadFailure(parseErr?.message || 'Falha ao processar resposta do servidor');
             }
           } else {
-            console.warn('Server upload failed with status ' + xhr.status + ', using simulator fallback');
-            simulateUpload(fileId, fileCategory);
+            console.warn('Server upload failed with status ' + xhr.status);
+            handleUploadFailure(`Servidor respondeu com status ${xhr.status}. Se você estiver hospedado na Vercel, o servidor backend não está disponível. Por favor, garanta que o arquivo tenha menos de 100MB para que o upload seja feito via Banco de Dados (Firestore).`);
           }
         });
 
         xhr.addEventListener('error', () => {
-          console.warn('Server upload connection error, using simulator fallback');
-          simulateUpload(fileId, fileCategory);
+          console.warn('Server upload connection error');
+          handleUploadFailure('Erro de conexão com o servidor do AppShare.');
         });
 
         xhr.open('POST', '/api/upload');
         xhr.setRequestHeader('x-file-id', fileId);
         xhr.setRequestHeader('x-file-name', encodeURIComponent(file.name));
         xhr.send(file);
-      } catch (err) {
-        console.warn('Server upload error, using simulator fallback:', err);
-        simulateUpload(fileId, fileCategory);
+      } catch (err: any) {
+        console.warn('Server upload error:', err);
+        handleUploadFailure(err?.message || 'Erro inesperado no servidor');
       }
     };
 
@@ -256,7 +263,7 @@ export default function UploadCard({ onUploadSuccess, user }: UploadCardProps) {
           });
           await saveFileMetadata(fileId, file.name, file.size, fileCategory, chunkUrl);
           return;
-        } catch (chunkErr) {
+        } catch (chunkErr: any) {
           console.warn('Firestore chunked upload failed, falling back to server upload:', chunkErr);
         }
       }
