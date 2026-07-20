@@ -29,12 +29,23 @@ export function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /**
- * Converts a base64 string to a Blob natively using optimized fetch
+ * Converts a base64 string to a Blob natively using optimized fetch with binary fallback
  */
 export async function base64ToBlob(base64: string, mimeType: string): Promise<Blob> {
-  const dataUrl = `data:${mimeType};base64,${base64}`;
-  const response = await fetch(dataUrl);
-  return await response.blob();
+  try {
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+    const response = await fetch(dataUrl);
+    return await response.blob();
+  } catch (e) {
+    console.warn('fetch dataUrl failed, falling back to atob decoding:', e);
+    const byteCharacters = atob(base64);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    return new Blob([byteArray], { type: mimeType });
+  }
 }
 
 /**
